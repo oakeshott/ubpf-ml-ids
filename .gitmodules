@@ -1,0 +1,7 @@
+[submodule "ebpf-idps-for-ddos"]
+	path = ebpf-idps-for-ddos
+	url = git@github.com:oakeshott/ebpf-idps-for-ddos.git
+[submodule "userspace-xdp"]
+	path = userspace-xdp
+	url = git@github.com:oakeshott/userspace-xdp.git
+	branch = ml-ids
