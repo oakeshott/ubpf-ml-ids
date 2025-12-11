@@ -1,1 +1,12 @@
 .DS_Store
+
+*.joblib
+*.pth
+__pycache__
+results
+*.csv
+*.pcap
+*.zip
+run.sh
+*.o
+*.so
