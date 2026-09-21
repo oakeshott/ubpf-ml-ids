@@ -5,7 +5,6 @@ import json
 import argparse
 import numpy as np
 import pandas as pd
-from sklearn.tree import DecisionTreeClassifier, export_text
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
 import joblib
@@ -26,21 +25,7 @@ def load_train_test(train_csv: str, test_csv: str, target_col: str):
     y_train_series = train_df[target_col]
     y_test_series = test_df[target_col]
 
-    # # 学習ラベルでfactorize
-    # y_train_codes, uniques = pd.factorize(y_train_series)
-    # label_mapping = {cls: idx for idx, cls in enumerate(uniques)}
-    # print("[INFO] Label mapping (train):")
-    # for cls, idx in label_mapping.items():
-    #     print(f"  {idx} -> {cls}")
-    #
-    # y_test_codes = y_test_series.map(label_mapping)
-    # if y_test_codes.isnull().any():
-    #     unknown = y_test_series[y_test_codes.isnull()].unique()
-    #     raise ValueError(f"テストデータに学習で見ていないラベルがあります: {unknown}")
-
-    # y_train_full = y_train_codes.astype(np.int64)
-    # y_test = y_test_codes.values.astype(np.int64)
-    y_train_full = y_train_series.values.astype(np.int64)
+    y_train_full = y_train_series.astype(np.int64)
     y_test = y_test_series.values.astype(np.int64)
 
     return X_train_full, y_train_full, X_test, y_test
@@ -48,7 +33,7 @@ def load_train_test(train_csv: str, test_csv: str, target_col: str):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="DecisionTreeClassifier (train/test from different CSVs)"
+        description="XGBClassifier (train/test from different CSVs)"
     )
     parser.add_argument(
         "--train-csv", type=str, required=True, help="学習用CSV（train+val）"
@@ -61,22 +46,20 @@ def main():
         "--val-ratio", type=float, default=0.2, help="学習CSVのうちValidationに回す割合"
     )
     parser.add_argument(
-        "--max-depth", type=int, default=None, help="木の最大深さ (default: None)"
-    )
-    parser.add_argument(
-        "--criterion",
-        type=str,
-        default="gini",
-        choices=["gini", "entropy", "log_loss"],
-        help="分割規準 (default: gini)",
-    )
-    parser.add_argument(
         "--random-state", type=int, default=42, help="乱数シード (default: 42)"
     )
     parser.add_argument(
         "--resdir", type=str, default="results", help="Output directory"
     )
-    parser.add_argument("--model-path", type=str, default="dt.joblib", help="学習率")
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        default="xgb.joblib",
+        help="モデルファイル (default: xgb.joblib)",
+    )
+    parser.add_argument(
+        "--scaler_path", type=str, default="scaler.joblib", help="学習率"
+    )
     args = parser.parse_args()
 
     print(f"[INFO] Loading train from {args.train_csv}")
@@ -91,7 +74,6 @@ def main():
         f"[INFO] X_test shape       = {X_test.shape}, y_test shape       = {y_test.shape}"
     )
 
-    # train / val split
     X_train, X_val, y_train, y_val = train_test_split(
         X_train_full,
         y_train_full,
@@ -102,17 +84,16 @@ def main():
     print(
         f"[INFO] Train size = {X_train.shape[0]}, Val size = {X_val.shape[0]}, Test size = {X_test.shape[0]}"
     )
+    # standard_scaler = joblib.load(args.scaler_path)
+    # X_test_norm = standard_scaler.transform(X_test)
 
-    model_path = args.model_path
-    clf = joblib.load(model_path)
+    clf = joblib.load(args.model_path)
 
-    # === Test ===
     y_test_pred = clf.predict(X_test)
     test_acc = accuracy_score(y_test, y_test_pred)
     print(f"[RESULT] Test Accuracy: {test_acc:.4f}\n")
     print("[RESULT] Classification Report (Test):")
     print(classification_report(y_test, y_test_pred))
-
     ret = classification_report(y_test, y_test_pred, digits=6, output_dict=True)
     tn, fp, fn, tp = confusion_matrix(y_test, y_test_pred).ravel()
     ret["false_positive_rate"] = fp / (fp + tn) if (fp + tn) > 0 else 0.0

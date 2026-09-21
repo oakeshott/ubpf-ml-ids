@@ -57,6 +57,8 @@ def main():
                         help="木の最大深さ (default: None)")
     parser.add_argument("--random-state", type=int, default=42,
                         help="乱数シード (default: 42)")
+    parser.add_argument("--model_path", type=str, default="rf.joblib",
+                        help="乱数シード (default: 42)")
     args = parser.parse_args()
 
     print(f"[INFO] Loading train from {args.train_csv}")
@@ -107,7 +109,7 @@ def main():
     print(feat_importance)
 
     # Save model
-    model_path = "rf.joblib"
+    model_path = args.model_path
     joblib.dump(clf, model_path)
     #
     # # Sample predictions

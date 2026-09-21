@@ -9,6 +9,7 @@ from sklearn.metrics import accuracy_score, classification_report
 from sklearn.model_selection import train_test_split
 import joblib
 
+
 def load_train_test(train_csv: str, test_csv: str, target_col: str):
     train_df = pd.read_csv(train_csv)
     test_df = pd.read_csv(test_csv)
@@ -46,18 +47,32 @@ def main():
     parser = argparse.ArgumentParser(
         description="DecisionTreeClassifier (train/test from different CSVs)"
     )
-    parser.add_argument("--train-csv", type=str, required=True, help="学習用CSV（train+val）")
+    parser.add_argument(
+        "--train-csv", type=str, required=True, help="学習用CSV（train+val）"
+    )
     parser.add_argument("--test-csv", type=str, required=True, help="テスト用CSV")
-    parser.add_argument("--target", type=str, required=True, help="目的変数（ラベル）の列名")
-    parser.add_argument("--val-ratio", type=float, default=0.2,
-                        help="学習CSVのうちValidationに回す割合")
-    parser.add_argument("--max-depth", type=int, default=None,
-                        help="木の最大深さ (default: None)")
-    parser.add_argument("--criterion", type=str, default="gini",
-                        choices=["gini", "entropy", "log_loss"],
-                        help="分割規準 (default: gini)")
-    parser.add_argument("--random-state", type=int, default=42,
-                        help="乱数シード (default: 42)")
+    parser.add_argument(
+        "--target", type=str, required=True, help="目的変数（ラベル）の列名"
+    )
+    parser.add_argument(
+        "--val-ratio", type=float, default=0.2, help="学習CSVのうちValidationに回す割合"
+    )
+    parser.add_argument(
+        "--max-depth", type=int, default=None, help="木の最大深さ (default: None)"
+    )
+    parser.add_argument(
+        "--criterion",
+        type=str,
+        default="gini",
+        choices=["gini", "entropy", "log_loss"],
+        help="分割規準 (default: gini)",
+    )
+    parser.add_argument(
+        "--random-state", type=int, default=42, help="乱数シード (default: 42)"
+    )
+    parser.add_argument(
+        "--model_path", type=str, default="dt.joblib", help="乱数シード (default: 42)"
+    )
     args = parser.parse_args()
 
     print(f"[INFO] Loading train from {args.train_csv}")
@@ -65,17 +80,24 @@ def main():
     X_train_full, y_train_full, X_test, y_test = load_train_test(
         args.train_csv, args.test_csv, args.target
     )
-    print(f"[INFO] X_train_full shape = {X_train_full.shape}, y_train_full shape = {y_train_full.shape}")
-    print(f"[INFO] X_test shape       = {X_test.shape}, y_test shape       = {y_test.shape}")
+    print(
+        f"[INFO] X_train_full shape = {X_train_full.shape}, y_train_full shape = {y_train_full.shape}"
+    )
+    print(
+        f"[INFO] X_test shape       = {X_test.shape}, y_test shape       = {y_test.shape}"
+    )
 
     # train / val split
     X_train, X_val, y_train, y_val = train_test_split(
-        X_train_full, y_train_full,
+        X_train_full,
+        y_train_full,
         test_size=args.val_ratio,
         random_state=args.random_state,
-        stratify=y_train_full
+        stratify=y_train_full,
     )
-    print(f"[INFO] Train size = {X_train.shape[0]}, Val size = {X_val.shape[0]}, Test size = {X_test.shape[0]}")
+    print(
+        f"[INFO] Train size = {X_train.shape[0]}, Val size = {X_val.shape[0]}, Test size = {X_test.shape[0]}"
+    )
 
     clf = DecisionTreeClassifier(
         max_depth=args.max_depth,
@@ -92,6 +114,7 @@ def main():
     y_val_pred = clf.predict(X_val)
     val_acc = accuracy_score(y_val, y_val_pred)
     print(f"\n[RESULT] Validation Accuracy: {val_acc:.4f}\n")
+    print(classification_report(y_val, y_val_pred))
 
     # === Test ===
     y_test_pred = clf.predict(X_test)
@@ -101,7 +124,7 @@ def main():
     print(classification_report(y_test, y_test_pred))
 
     # Save model
-    model_path = "dt.joblib"
+    model_path = args.model_path
     joblib.dump(clf, model_path)
 
     # # Feature importance

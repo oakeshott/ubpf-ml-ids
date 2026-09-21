@@ -13,6 +13,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 from tqdm import tqdm
 
+FIXED_SCALE = 2**16
+
 
 class MLP(nn.Module):
     def __init__(self, in_dim: int, hidden_dims, num_classes: int):
@@ -30,7 +32,9 @@ class MLP(nn.Module):
         return self.net(x)
 
 
-def load_train_test(train_csv: str, test_csv: str, target_col: str):
+def load_train_test(
+    train_csv: str, test_csv: str, target_col: str, feature_importance_csv: str = None
+):
     """train/test を別CSVから読み込み、学習ラベルでfactorizeしたコードに揃える。"""
     train_df = pd.read_csv(train_csv)
     test_df = pd.read_csv(test_csv)
@@ -40,9 +44,20 @@ def load_train_test(train_csv: str, test_csv: str, target_col: str):
     if target_col not in test_df.columns:
         raise ValueError(f"test_csv に {target_col} が存在しません。")
 
+    feature_importance = pd.read_csv(feature_importance_csv, index_col=0)
+    feature_importance = feature_importance.sort_values("mean_rank", ascending=True)[
+        :16
+    ].index.values
+
     # 特徴量
-    X_train_full = train_df.drop(columns=[target_col]).values.astype(np.float32)
-    X_test = test_df.drop(columns=[target_col]).values.astype(np.float32)
+    # X_train_full = train_df.drop(columns=[target_col]).values.astype(np.float32)
+    # X_test = test_df.drop(columns=[target_col]).values.astype(np.float32)
+    X_train_full = train_df.drop(columns=[target_col])[
+        feature_importance
+    ].values.astype(np.float32)
+    X_test = test_df.drop(columns=[target_col])[feature_importance].values.astype(
+        np.float32
+    )
 
     # X_train_full = (X_train_full * 2**16).round()
     # X_test = (X_test * 2**16).round()
@@ -97,20 +112,42 @@ def evaluate(model, loader, device):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="PyTorch MLP: train/val/test を別CSVから")
-    parser.add_argument("--train-csv", type=str, required=True, help="学習用CSV（train+val）")
+    parser = argparse.ArgumentParser(
+        description="PyTorch MLP: train/val/test を別CSVから"
+    )
+    parser.add_argument(
+        "--train-csv", type=str, required=True, help="学習用CSV（train+val）"
+    )
     parser.add_argument("--test-csv", type=str, required=True, help="テスト用CSV")
-    parser.add_argument("--target", type=str, required=True, help="目的変数（ラベル）の列名")
-    parser.add_argument("--val-ratio", type=float, default=0.2, help="学習CSVのうちValidationに回す割合")
-    parser.add_argument("--hidden", type=str, default="100", help="隠れ層ユニット（例: 128,64）")
+    parser.add_argument(
+        "--target", type=str, required=True, help="目的変数（ラベル）の列名"
+    )
+    parser.add_argument(
+        "--val-ratio", type=float, default=0.2, help="学習CSVのうちValidationに回す割合"
+    )
+    parser.add_argument(
+        "--hidden", type=str, default="100", help="隠れ層ユニット（例: 128,64）"
+    )
     parser.add_argument("--epochs", type=int, default=50, help="エポック数")
     parser.add_argument("--batch-size", type=int, default=64, help="バッチサイズ")
     parser.add_argument("--lr", type=float, default=1e-3, help="学習率")
+    parser.add_argument(
+        "--model-path", type=str, default="mlp_fixed.pth", help="学習率"
+    )
+    parser.add_argument(
+        "--feature_importance",
+        type=str,
+        default="../dataset/csv/flow/feature_importance.csv",
+    )
     args = parser.parse_args()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else
-            "mps" if torch.backends.mps.is_available() else
-            "cpu")
+    device = torch.device(
+        "cuda"
+        if torch.cuda.is_available()
+        else "mps"
+        if torch.backends.mps.is_available()
+        else "cpu"
+    )
     print(f"[INFO] Device: {device}")
 
     hidden_dims = tuple(int(x) for x in args.hidden.split(","))
@@ -119,26 +156,28 @@ def main():
     print(f"[INFO] Loading train from {args.train_csv}")
     print(f"[INFO] Loading test  from {args.test_csv}")
     X_train_full, y_train_full, X_test, y_test = load_train_test(
-        args.train_csv, args.test_csv, args.target
+        args.train_csv, args.test_csv, args.target, args.feature_importance
     )
-    print(f"[INFO] X_train_full shape = {X_train_full.shape}, y_train_full shape = {y_train_full.shape}")
-    print(f"[INFO] X_test shape       = {X_test.shape}, y_test shape       = {y_test.shape}")
+    print(
+        f"[INFO] X_train_full shape = {X_train_full.shape}, y_train_full shape = {y_train_full.shape}"
+    )
+    print(
+        f"[INFO] X_test shape       = {X_test.shape}, y_test shape       = {y_test.shape}"
+    )
 
     # === train/val 分割（学習CSVの一部をValidationに） ===
     X_train, X_val, y_train, y_val = train_test_split(
-        X_train_full, y_train_full,
+        X_train_full,
+        y_train_full,
         test_size=args.val_ratio,
         random_state=42,
-        stratify=y_train_full
+        stratify=y_train_full,
     )
-
 
     # === 正規化（学習データ全体の統計量を使う） ===
     # X_train_full_norm, X_train_norm, X_val_norm, X_test_norm = standardize_with_train(
     #     X_train_full, X_train, X_val, X_test
     # )
-    standard_scaler = preprocessing.StandardScaler()
-    standard_scaler.fit(X_train)
     # mean = standard_scaler.mean_
     # std = standard_scaler.scale_
     # X_train_full_norm = standardize_with_train(X_train_full, (mean * 2**16).round().astype(np.int64), (std * 2**16).round().astype(np.int64))
@@ -146,15 +185,22 @@ def main():
     # X_val_norm = standardize_with_train(X_val, (mean * 2**16).round().astype(np.int64), (std * 2**16).round().astype(np.int64))
     # X_test_norm = standardize_with_train(X_test, (mean * 2**16).round().astype(np.int64), (std * 2**16).round().astype(np.int64))
 
-    X_train_full_norm = standard_scaler.transform(X_train_full)
+    standard_scaler = preprocessing.StandardScaler()
+    standard_scaler.fit(X_train)
     X_train_norm = standard_scaler.transform(X_train)
     X_val_norm = standard_scaler.transform(X_val)
     X_test_norm = standard_scaler.transform(X_test)
 
-    # X_train_full_norm = (X_train_full_norm * (2 ** 16)).round()
-    # X_train_norm = (X_train_norm * (2 ** 16)).round()
-    # X_val_norm   = (X_val_norm * (2 ** 16)).round()
-    # X_test_norm  = (X_test_norm * (2 ** 16)).round()
+    # print(
+    #     {
+    #         "mean": standard_scaler.mean_,
+    #         "scale": standard_scaler.scale_,
+    #     }
+    # )
+
+    # X_train_norm = (X_train_norm * (FIXED_SCALE)).round()
+    # X_val_norm = (X_val_norm * (FIXED_SCALE)).round()
+    # X_test_norm = (X_test_norm * (FIXED_SCALE)).round()
 
     # numpy -> tensor
     X_train_t = torch.from_numpy(X_train_norm).float()
@@ -164,12 +210,15 @@ def main():
     X_test_t = torch.from_numpy(X_test_norm).float()
     y_test_t = torch.from_numpy(y_test).long()
 
-    train_loader = DataLoader(TensorDataset(X_train_t, y_train_t),
-                              batch_size=args.batch_size, shuffle=True)
-    val_loader = DataLoader(TensorDataset(X_val_t, y_val_t),
-                            batch_size=args.batch_size, shuffle=False)
-    test_loader = DataLoader(TensorDataset(X_test_t, y_test_t),
-                             batch_size=args.batch_size, shuffle=False)
+    train_loader = DataLoader(
+        TensorDataset(X_train_t, y_train_t), batch_size=args.batch_size, shuffle=True
+    )
+    val_loader = DataLoader(
+        TensorDataset(X_val_t, y_val_t), batch_size=args.batch_size, shuffle=False
+    )
+    test_loader = DataLoader(
+        TensorDataset(X_test_t, y_test_t), batch_size=args.batch_size, shuffle=False
+    )
 
     in_dim = X_train.shape[1]
     # num_classes = len(label_mapping)
@@ -178,7 +227,8 @@ def main():
     print(model)
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr)
 
     # === 学習ループ ===
     for epoch in tqdm(range(1, args.epochs + 1)):
@@ -207,10 +257,12 @@ def main():
         val_acc = evaluate(model, val_loader, device)
 
         # if epoch == 1 or epoch == args.epochs or epoch % 10 == 0:
-        print(f"[Epoch {epoch:03d}] "
-              f"TrainLoss={train_loss:.4f} "
-              f"TrainAcc={train_acc:.4f} "
-              f"ValAcc={val_acc:.4f}")
+        print(
+            f"[Epoch {epoch:03d}] "
+            f"TrainLoss={train_loss:.4f} "
+            f"TrainAcc={train_acc:.4f} "
+            f"ValAcc={val_acc:.4f}"
+        )
 
     # === Test で classification_report ===
     model.eval()
@@ -226,11 +278,14 @@ def main():
     for i in range(min(5, len(y_test))):
         print(f"  true={y_test[i]}, pred={y_pred[i]}")
 
-    torch.save({
-        'model_state_dict': model.state_dict(),
-        'mean': standard_scaler.mean_,
-        'scale': standard_scaler.scale_,
-        }, 'mlp_fixed.pth')
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "mean": standard_scaler.mean_,
+            "scale": standard_scaler.scale_,
+        },
+        args.model_path,
+    )
 
 
 if __name__ == "__main__":

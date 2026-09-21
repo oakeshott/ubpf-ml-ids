@@ -18,9 +18,9 @@ static void standard_scaler(const int64_t *x, int32_t *y, const int64_t *mean, c
 #pragma clang loop unroll(full)
   for (int32_t i = 0; i < N; ++i) {
     if (mean[i] > x[i])
-      y[i] = -(int32_t)(((uint64_t)mean[i] - (uint64_t)x[i]) * (1 << FXP_VALUE) / (uint64_t)scale[i]);
+      y[i] = -(int32_t)(((int64_t)mean[i] - (int64_t)x[i]) * (1 << FXP_VALUE) / (int64_t)scale[i]);
     else
-      y[i] = (int32_t)(((uint64_t)x[i] - (uint64_t)mean[i]) * (1 << FXP_VALUE) / (uint64_t)scale[i]);
+      y[i] = (int32_t)(((int64_t)x[i] - (int64_t)mean[i]) * (1 << FXP_VALUE) / (int64_t)scale[i]);
   }
 }
 
@@ -49,9 +49,6 @@ void mlp(const int64_t *x, unsigned int *class_indices) {
   int32_t layer_1_output[N2] = {0};
   int32_t layer_2_output[N3] = {0};
   standard_scaler(x, x_scaled, mean, scale, N0);
-  /* for (int i = 0; i < N0; i++) */
-  /*   printf("%d ", x_scaled[i]); */
-  /* printf("\n"); */
   linear_layer(layer_0_weight, x_scaled, layer_0_output, layer_0_bias, N1, N0);
   relu(layer_0_output, N1);
   linear_layer(layer_1_weight, layer_0_output, layer_1_output, layer_1_bias, N2, N1);

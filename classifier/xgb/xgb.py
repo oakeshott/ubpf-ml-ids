@@ -4,16 +4,14 @@
 import argparse
 import numpy as np
 import pandas as pd
-from sklearn.tree import DecisionTreeClassifier, export_text
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.model_selection import train_test_split
-
-FIXED_SCALE = 2**16
+from sklearn import preprocessing
+import joblib
 
 
 def load_train_test(train_csv: str, test_csv: str, target_col: str):
     train_df = pd.read_csv(train_csv)
-    print(train_df)
     test_df = pd.read_csv(test_csv)
 
     if target_col not in train_df.columns:
@@ -23,13 +21,11 @@ def load_train_test(train_csv: str, test_csv: str, target_col: str):
 
     X_train_full = train_df.drop(columns=[target_col])
     X_test = test_df.drop(columns=[target_col])
-    X_train_full = (X_train_full * FIXED_SCALE).round()
-    X_test = (X_test * FIXED_SCALE).round()
 
     y_train_series = train_df[target_col]
     y_test_series = test_df[target_col]
 
-    y_train_full = y_train_series.values.astype(np.int64)
+    y_train_full = y_train_series.astype(np.int64)
     y_test = y_test_series.values.astype(np.int64)
 
     return X_train_full, y_train_full, X_test, y_test
@@ -37,7 +33,7 @@ def load_train_test(train_csv: str, test_csv: str, target_col: str):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="DecisionTreeClassifier (train/test from different CSVs)"
+        description="XGBClassifier (train/test from different CSVs)"
     )
     parser.add_argument(
         "--train-csv", type=str, required=True, help="学習用CSV（train+val）"
@@ -50,22 +46,34 @@ def main():
         "--val-ratio", type=float, default=0.2, help="学習CSVのうちValidationに回す割合"
     )
     parser.add_argument(
-        "--max-depth", type=int, default=None, help="木の最大深さ (default: None)"
+        "--n-estimators", type=int, default=10, help="木の本数 (default: 100)"
     )
     parser.add_argument(
-        "--criterion",
-        type=str,
-        default="gini",
-        choices=["gini", "entropy", "log_loss"],
-        help="分割規準 (default: gini)",
+        "--max-depth", type=int, default=10, help="木の最大深さ (default: 6)"
+    )
+    parser.add_argument(
+        "--learning-rate", type=float, default=0.1, help="学習率 (default: 0.1)"
     )
     parser.add_argument(
         "--random-state", type=int, default=42, help="乱数シード (default: 42)"
     )
     parser.add_argument(
-        "--model_path", type=str, default="dt_params.h", help="乱数シード (default: 42)"
+        "--model_path",
+        type=str,
+        default="xgb.joblib",
+        help="モデル保存先 (default: xgb.joblib)",
+    )
+    parser.add_argument(
+        "--scaler_path", type=str, default="scaler.joblib", help="学習率"
     )
     args = parser.parse_args()
+
+    try:
+        from xgboost import XGBClassifier
+    except ImportError as exc:
+        raise SystemExit(
+            "xgboost がインストールされていません。pip install xgboost を実行してください。"
+        ) from exc
 
     print(f"[INFO] Loading train from {args.train_csv}")
     print(f"[INFO] Loading test  from {args.test_csv}")
@@ -79,7 +87,6 @@ def main():
         f"[INFO] X_test shape       = {X_test.shape}, y_test shape       = {y_test.shape}"
     )
 
-    # train / val split
     X_train, X_val, y_train, y_val = train_test_split(
         X_train_full,
         y_train_full,
@@ -90,81 +97,41 @@ def main():
     print(
         f"[INFO] Train size = {X_train.shape[0]}, Val size = {X_val.shape[0]}, Test size = {X_test.shape[0]}"
     )
+    # standard_scaler = preprocessing.StandardScaler()
+    # standard_scaler.fit(X_train)
+    # print(standard_scaler.mean_, standard_scaler.scale_)
+    # X_train_full_norm = standard_scaler.transform(X_train_full)
+    # X_train_norm = standard_scaler.transform(X_train)
+    # X_val_norm = standard_scaler.transform(X_val)
+    # X_test_norm = standard_scaler.transform(X_test)
 
-    clf = DecisionTreeClassifier(
+    # joblib.dump(standard_scaler, args.scaler_path)
+
+    clf = XGBClassifier(
+        n_estimators=args.n_estimators,
         max_depth=args.max_depth,
-        criterion=args.criterion,
+        learning_rate=args.learning_rate,
+        objective="binary:logistic",
+        eval_metric="logloss",
         random_state=args.random_state,
+        n_jobs=-1,
     )
 
-    # === Train ===
-    X_train = X_train.values.astype(np.int64)
-    print("[INFO] Training DecisionTree...")
+    print("[INFO] Training XGBClassifier...")
     clf.fit(X_train, y_train)
     print("[INFO] Training done.")
 
-    # === Validation ===
-    X_val = X_val.values.astype(np.int64)
     y_val_pred = clf.predict(X_val)
     val_acc = accuracy_score(y_val, y_val_pred)
     print(f"\n[RESULT] Validation Accuracy: {val_acc:.4f}\n")
-    print(classification_report(y_val, y_val_pred))
 
-    # === Test ===
-    X_test = X_test.values.astype(np.int64)
     y_test_pred = clf.predict(X_test)
     test_acc = accuracy_score(y_test, y_test_pred)
     print(f"[RESULT] Test Accuracy: {test_acc:.4f}\n")
     print("[RESULT] Classification Report (Test):")
     print(classification_report(y_test, y_test_pred))
 
-    children_left = clf.tree_.children_left
-    children_right = clf.tree_.children_right
-    value = clf.tree_.value.squeeze().argmax(axis=1)
-    features = clf.tree_.feature
-    threshold = clf.tree_.threshold.round().astype(np.int64)
-
-    with open(args.model_path, "w") as f:
-        f.write(f"#define CHILDLEN_LEFT_SIZE {len(children_left)}\n")
-        f.write(f"#define CHILDLEN_RIGHT_SIZE {len(children_right)}\n")
-        f.write(f"#define FEATURES_SIZE {len(features)}\n")
-        f.write(f"#define THRESHOLD_SIZE {len(threshold)}\n")
-        f.write(f"#define VALUE_SIZE {len(value)}\n")
-        f.write("const int64_t children_left[CHILDLEN_LEFT_SIZE] = {")
-        for k, val in enumerate(children_left):
-            if k == len(children_left) - 1:
-                f.write(f"{val}")
-            else:
-                f.write(f"{val}, ")
-        f.write("};\n")
-        f.write("const int64_t children_right[CHILDLEN_RIGHT_SIZE] = {")
-        for k, val in enumerate(children_right):
-            if k == len(children_right) - 1:
-                f.write(f"{val}")
-            else:
-                f.write(f"{val}, ")
-        f.write("};\n")
-        f.write("const int64_t features[FEATURES_SIZE] = {")
-        for k, val in enumerate(features):
-            if k == len(features) - 1:
-                f.write(f"{val}")
-            else:
-                f.write(f"{val}, ")
-        f.write("};\n")
-        f.write("const int64_t threshold[THRESHOLD_SIZE] = {")
-        for k, val in enumerate(threshold):
-            if k == len(threshold) - 1:
-                f.write(f"{val}")
-            else:
-                f.write(f"{val}, ")
-        f.write("};\n")
-        f.write("const int64_t value[VALUE_SIZE] = {")
-        for k, val in enumerate(value):
-            if k == len(value) - 1:
-                f.write(f"{val}")
-            else:
-                f.write(f"{val}, ")
-        f.write("};\n")
+    joblib.dump(clf, args.model_path)
 
 
 if __name__ == "__main__":
